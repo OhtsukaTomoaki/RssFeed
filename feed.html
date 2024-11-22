@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Qiita Articles</title>
+    <title>Qiita - Multiple Accounts Articles</title>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <style>
         body {
@@ -17,24 +17,29 @@
             color: #333;
             margin-bottom: 40px;
         }
-        .account-section {
-            margin-bottom: 40px;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s;
-        }
-        .account-section:hover {
-            transform: scale(1.02);
-        }
-        .account-header {
-            font-size: 28px;
-            font-weight: bold;
+        .account-list {
             margin-bottom: 20px;
-            color: #fff;
+        }
+        .account-item {
+            margin: 10px 0;
             padding: 10px;
+            background-color: #fff;
+            border: 2px solid #ccc;
             border-radius: 5px;
-            text-align: center;
+            cursor: pointer;
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+        .account-item:hover {
+            background-color: #f9f9f9;
+            border-color: #aaa;
+        }
+        .account-item.no-posts {
+            background-color: #ffd1d1;
+            border-color: #ff6b6b;
+        }
+        .article-list {
+            display: none;
+            margin-top: 20px;
         }
         .article {
             margin-bottom: 20px;
@@ -56,75 +61,90 @@
             margin: 5px 0;
             color: #555;
         }
-        .account-1 .account-header {
-            background-color: #1abc9c; /* アカウント1用の色 */
-        }
-        .account-2 .account-header {
-            background-color: #3498db; /* アカウント2用の色 */
-        }
-        /* 追加のアカウントがある場合、対応するクラスと色を追加 */
     </style>
     <script>
         $(document).ready(function() {
-            const accounts = ['OtsukaTomoaki', 'katsuya_tanaka', '4mdy', 'shohta-noda', 'megmogmog1965', 'Gaakuu', 'Shoya-Miyata']; // アカウントの配列をここに追加
-            const $articlesDiv = $('#articles');
-            $articlesDiv.empty();
+            const accounts = ['OtsukaTomoaki', 'katsuya_tanaka', '4mdy', 'shohta-noda', 'megmogmog1965', 'Gaakuu', 'Shoya-Miyata'];
+            const $accountList = $('#account-list');
+            const now = new Date();
+            const twoWeeksAgo = new Date();
+            twoWeeksAgo.setDate(now.getDate() - 14);
+            const accountData = [];
+            let loadedAccounts = 0;
 
-            accounts.forEach(function(account, index) {
+            accounts.forEach(function(account) {
                 const feedUrl = `https://qiita.com/${account}/feed.atom`;
                 const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=` + encodeURIComponent(feedUrl);
 
                 $.getJSON(apiUrl, function(data) {
-                    if (data.items) {
-                        const now = new Date();
-                        const twoWeeksAgo = new Date();
-                        twoWeeksAgo.setDate(now.getDate() - 14);
+                    const filteredItems = data.items ? data.items.filter(function(item) {
+                        const pubDate = new Date(item.pubDate);
+                        return pubDate >= twoWeeksAgo;
+                    }) : [];
 
-                        const filteredItems = data.items.filter(function(item) {
-                            const pubDate = new Date(item.pubDate);
-                            return pubDate >= twoWeeksAgo;
-                        });
+                    const articleCount = filteredItems.length;
+                    accountData.push({ account, articleCount, filteredItems });
 
-                        const articleCount = filteredItems.length;
-
-                        if (articleCount > 0) {
-                            const accountClass = `account-${index + 1}`;
-                            const accountSection = `
-                                <div class="account-section ${accountClass}">
-                                    <div class="account-header">${account} - ${articleCount} articles in the last 2 weeks</div>
-                                    <div class="account-articles"></div>
-                                </div>
-                            `;
-                            $articlesDiv.append(accountSection);
-
-                            const $accountArticlesDiv = $articlesDiv.find('.account-section:last .account-articles');
-                            filteredItems.forEach(function(item) {
-                                const articleHtml = `
-                                    <div class="article">
-                                        <h2><a href="${item.link}" target="_blank">${item.title}</a></h2>
-                                        <p><strong>Published:</strong> ${item.pubDate}</p>
-                                        <p>${item.description}</p>
-                                    </div>
-                                `;
-                                $accountArticlesDiv.append(articleHtml);
-                            });
-                        } else {
-                            $articlesDiv.append(`<p>No articles found for ${account} in the last 2 weeks.</p>`);
-                        }
-                    } else {
-                        $articlesDiv.append(`<p>No articles found for ${account}.</p>`);
-                    }
                 }).fail(function() {
-                    $articlesDiv.append(`<p>Failed to load articles for ${account}.</p>`);
+                    accountData.push({ account, articleCount: 0, filteredItems: [] });
+                }).always(function() {
+                    loadedAccounts++;
+                    if (loadedAccounts === accounts.length) {
+                        renderAccounts();
+                    }
                 });
             });
+
+            function renderAccounts() {
+                // ソート（記事数の多い順）
+                accountData.sort((a, b) => b.articleCount - a.articleCount);
+
+                // UIをクリアして再描画
+                $accountList.empty();
+                accountData.forEach(function(data) {
+                    const { account, articleCount, filteredItems } = data;
+                    const prefix = articleCount > 0 ? '🎉 ' : '';
+                    const $accountItem = $(`<div class="account-item" data-account="${account}">${prefix}${account} - ${articleCount} articles</div>`);
+
+                    if (articleCount === 0) {
+                        $accountItem.addClass('no-posts');
+                        $accountItem.append(' - No posts in the last 2 weeks');
+                    }
+
+                    $accountList.append($accountItem);
+
+                    $accountItem.click(function() {
+                        const $articleList = $(`#article-list-${account}`);
+                        if ($articleList.length > 0) {
+                            $articleList.toggle();
+                            return;
+                        }
+
+                        const $newArticleList = $(`<div class="article-list" id="article-list-${account}"></div>`);
+                        filteredItems.forEach(function(item) {
+                            const articleHtml = `
+                                <div class="article">
+                                    <h2><a href="${item.link}" target="_blank">${item.title}</a></h2>
+                                    <p><strong>Published:</strong> ${item.pubDate}</p>
+                                    <p>${item.description}</p>
+                                </div>
+                            `;
+                            $newArticleList.append(articleHtml);
+                        });
+                        $accountItem.after($newArticleList);
+                        $newArticleList.show();
+                    });
+                });
+
+                // Loadingを消す
+                $('#loading').hide();
+            }
         });
     </script>
 </head>
 <body>
     <h1>Qiita - Multiple Accounts Articles</h1>
-    <div id="articles">
-        <p>Loading...</p>
-    </div>
+    <div id="loading"><p>Loading...</p></div>
+    <div id="account-list" class="account-list"></div>
 </body>
 </html>
