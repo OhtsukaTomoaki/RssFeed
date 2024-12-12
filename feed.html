@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Qiita - Multiple Accounts Articles</title>
+    <title>Qiita & Zenn - Rankings</title>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <style>
         body {
@@ -17,10 +17,10 @@
             color: #333;
             margin-bottom: 40px;
         }
-        .account-list {
+        .ranking-list {
             margin-bottom: 20px;
         }
-        .account-item {
+        .ranking-item {
             margin: 10px 0;
             padding: 10px;
             background-color: #fff;
@@ -29,13 +29,9 @@
             cursor: pointer;
             transition: background-color 0.3s, border-color 0.3s;
         }
-        .account-item:hover {
+        .ranking-item:hover {
             background-color: #f9f9f9;
             border-color: #aaa;
-        }
-        .account-item.no-posts {
-            background-color: #ffd1d1;
-            border-color: #ff6b6b;
         }
         .article-list {
             display: none;
@@ -64,64 +60,101 @@
     </style>
     <script>
         $(document).ready(function() {
-            const accounts = ['OtsukaTomoaki', 'katsuya_tanaka', '4mdy', 'shohta-noda', 'megmogmog1965', 'Gaakuu', 'Shoya-Miyata'];
-            const $accountList = $('#account-list');
+            const accounts = [
+                { 'name': '大塚', 'qiita': 'OtsukaTomoaki', 'zenn': 'bigmound26' },
+                { 'name': '田中', 'qiita': 'katsuya_tanaka', 'zenn': '' },
+                { 'name': '下田', 'qiita': '4mdy', 'zenn': 'shimody' },
+                { 'name': '野田', 'qiita': 'shohta-noda', 'zenn': '' },
+                { 'name': '川津', 'qiita': 'megmogmog1965', 'zenn': '' },
+                { 'name': '青木', 'qiita': 'Gaakuu', 'zenn': '' },
+                { 'name': '宮田', 'qiita': 'Shoya-Miyata', 'zenn': '' }
+            ];
+
             const now = new Date();
             const twoWeeksAgo = new Date();
             twoWeeksAgo.setDate(now.getDate() - 14);
+
             const accountData = [];
             let loadedAccounts = 0;
 
-            accounts.forEach(function(account) {
-                const feedUrl = `https://qiita.com/${account}/feed.atom`;
-                const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=` + encodeURIComponent(feedUrl);
-
-                $.getJSON(apiUrl, function(data) {
-                    const filteredItems = data.items ? data.items.filter(function(item) {
-                        const pubDate = new Date(item.pubDate);
-                        return pubDate >= twoWeeksAgo;
-                    }) : [];
-
-                    const articleCount = filteredItems.length;
-                    accountData.push({ account, articleCount, filteredItems });
-
-                }).fail(function() {
-                    accountData.push({ account, articleCount: 0, filteredItems: [] });
-                }).always(function() {
-                    loadedAccounts++;
-                    if (loadedAccounts === accounts.length) {
-                        renderAccounts();
+            function fetchRSS(url, accountName, source) {
+                return new Promise((resolve) => {
+                    if (!url) {
+                        resolve({ accountName, source, count: 0, items: [] });
+                        return;
                     }
+
+                    const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}`;
+
+                    $.getJSON(apiUrl, function(data) {
+                        const filteredItems = data.items ? data.items.filter(item => {
+                            const pubDate = new Date(item.pubDate);
+                            return pubDate >= twoWeeksAgo;
+                        }) : [];
+
+                        resolve({ accountName, source, count: filteredItems.length, items: filteredItems });
+                    }).fail(function() {
+                        resolve({ accountName, source, count: 0, items: [] });
+                    });
                 });
-            });
+            }
 
-            function renderAccounts() {
-                // ソート（記事数の多い順）
-                accountData.sort((a, b) => b.articleCount - a.articleCount);
+            async function loadAccounts() {
+                for (const account of accounts) {
+                    const qiitaPromise = fetchRSS(
+                        account.qiita ? `https://qiita.com/${account.qiita}/feed.atom` : '',
+                        account.name,
+                        'Qiita'
+                    );
 
-                // UIをクリアして再描画
-                $accountList.empty();
-                accountData.forEach(function(data) {
-                    const { account, articleCount, filteredItems } = data;
-                    const prefix = articleCount > 0 ? '🎉 ' : '';
-                    const $accountItem = $(`<div class="account-item" data-account="${account}">${prefix}${account} - ${articleCount} articles</div>`);
+                    const zennPromise = fetchRSS(
+                        account.zenn ? `https://zenn.dev/${account.zenn}/feed` : '',
+                        account.name,
+                        'Zenn'
+                    );
 
-                    if (articleCount === 0) {
-                        $accountItem.addClass('no-posts');
-                        $accountItem.append(' - No posts in the last 2 weeks');
+                    const [qiitaData, zennData] = await Promise.all([qiitaPromise, zennPromise]);
+
+                    const totalPosts = qiitaData.count + zennData.count;
+
+                    accountData.push({
+                        name: account.name,
+                        totalPosts,
+                        details: [...qiitaData.items, ...zennData.items]
+                    });
+
+                    loadedAccounts++;
+
+                    if (loadedAccounts === accounts.length) {
+                        renderRankings();
                     }
+                }
+            }
 
-                    $accountList.append($accountItem);
+            function renderRankings() {
+                accountData.sort((a, b) => b.totalPosts - a.totalPosts);
 
-                    $accountItem.click(function() {
-                        const $articleList = $(`#article-list-${account}`);
+                const $rankingList = $('#ranking-list');
+                $rankingList.empty();
+
+                accountData.forEach((data, index) => {
+                    const { name, totalPosts, details } = data;
+                    const prefix = totalPosts > 0 ? '🎉 ' : '';
+                    const $rankingItem = $(`
+                        <div class="ranking-item" data-account="${name}">
+                            ${prefix}${index + 1}. ${name} - ${totalPosts} posts
+                        </div>
+                    `);
+
+                    $rankingItem.click(function() {
+                        const $articleList = $(`#article-list-${name}`);
                         if ($articleList.length > 0) {
                             $articleList.toggle();
                             return;
                         }
 
-                        const $newArticleList = $(`<div class="article-list" id="article-list-${account}"></div>`);
-                        filteredItems.forEach(function(item) {
+                        const $newArticleList = $(`<div class="article-list" id="article-list-${name}"></div>`);
+                        details.forEach(item => {
                             const articleHtml = `
                                 <div class="article">
                                     <h2><a href="${item.link}" target="_blank">${item.title}</a></h2>
@@ -131,20 +164,24 @@
                             `;
                             $newArticleList.append(articleHtml);
                         });
-                        $accountItem.after($newArticleList);
+
+                        $rankingItem.after($newArticleList);
                         $newArticleList.show();
                     });
+
+                    $rankingList.append($rankingItem);
                 });
 
-                // Loadingを消す
                 $('#loading').hide();
             }
+
+            loadAccounts();
         });
     </script>
 </head>
 <body>
-    <h1>Qiita - Multiple Accounts Articles</h1>
+    <h1>Qiita & Zenn - Rankings</h1>
     <div id="loading"><p>Loading...</p></div>
-    <div id="account-list" class="account-list"></div>
+    <div id="ranking-list" class="ranking-list"></div>
 </body>
 </html>
